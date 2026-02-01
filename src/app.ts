@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRouter from './routes/auth.routes'
 import userRouter from './routes/user.routes'
+import adminRouter from './routes/admin.routes'
 
 dotenv.config();
 
@@ -16,7 +17,8 @@ app.get('/health',(_req,res)=>{
 });
 
 app.use('/auth',authRouter);
-app.use('/user',userRouter)
+app.use('/user',userRouter);
+app.use('/admin',adminRouter)
 
 
 export default app;
