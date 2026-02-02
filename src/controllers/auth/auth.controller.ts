@@ -7,9 +7,27 @@ import { sendEmail } from "../../lib/email";
 import { createAccessToken, createRefreshToken, verifyRefreshToken } from "../../lib/token";
 
 import crypto from 'crypto'
+import { OAuth2Client } from "google-auth-library";
 
 function getAppUrl(){
   return process.env.APP_URL|| `http://localhost:${process.env.PORT}`
+}
+
+function getGoogleClient(){
+  const clientId=process.env.GOOGLE_CLIENT_ID
+  const clientSecret=process.env.GOOGLE_CLIENT_SECRET
+  const redirectUri=process.env.GOOGLE_REDIRECT_URL
+  
+ 
+  if(!clientId || !clientSecret){
+    throw new Error('Google ID and secret both are missing')
+  }
+
+  return new OAuth2Client({
+    clientId,
+    clientSecret,
+    redirectUri
+  })
 }
 
 export async function registerHandler(req:Request,res:Response){
@@ -283,3 +301,20 @@ export async function resetPasswordHandler(req:Request,res:Response) {
   }
 }
 
+export async function googleAuthStartHandler(_req:Request,res:Response) {
+  try {
+    const client=getGoogleClient()
+    const url=client.generateAuthUrl({
+      access_type:'offline',
+      prompt:'consent',
+      scope:['openid','email','profile']
+    })
+
+    return res.redirect(url)
+  } catch (error) {
+    console.log(error)
+    return res.status(500).json({
+      message:'Internal server error'
+    })
+  }
+}
