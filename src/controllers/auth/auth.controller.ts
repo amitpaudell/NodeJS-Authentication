@@ -8,6 +8,7 @@ import { createAccessToken, createRefreshToken, verifyRefreshToken } from "../..
 
 import crypto from 'crypto'
 import { OAuth2Client } from "google-auth-library";
+import { id } from "zod/locales";
 
 function getAppUrl(){
   return process.env.APP_URL|| `http://localhost:${process.env.PORT}`
@@ -196,13 +197,7 @@ export async function refreshHandler(req:Request,res:Response){
     const newAccessToken= createAccessToken(user.id,user.role,user.tokenVersion);
     const newRefreshToken=createRefreshToken(user.id,user.tokenVersion);
 
-    const isProd=process.env.NODE_ENV==='production'
-    res.cookie('refreshToken',newRefreshToken,{
-      httpOnly:true,
-      secure: isProd,
-      sameSite:'lax',
-      maxAge:7*24*60*60*1000
-    })
+ 
 
     return res.status(200).json({
       message:'Token refreshed',
@@ -317,4 +312,94 @@ export async function googleAuthStartHandler(_req:Request,res:Response) {
       message:'Internal server error'
     })
   }
+}
+
+export async function googleAuthCallbackHandler(req:Request,res:Response) {
+    const code=req.query.code as string| undefined;
+
+    if(!code){
+      return res.status(400).json({
+        message:'Missing code in callback'
+      })
+    }
+
+    try {
+      const client=getGoogleClient();
+      const {tokens}=await client.getToken(code);
+       if(!tokens.id_token){
+        return res.status(400).json({
+          message:'No id_token is present google'
+        })
+       }
+
+
+       //verify id token and read the user info from it
+       const ticket=await client.verifyIdToken({
+        idToken:tokens.id_token,
+        audience:process.env.GOOGLE_CLIENT_ID as string
+       })
+
+       const payload=ticket.getPayload();
+       const email=payload?.email;
+       const emailVerified=payload?.email_verified;
+       
+       if(!email || !emailVerified){
+        return res.status(400).json({
+          message:'Google email account not verified'
+        })
+       }
+      
+       const normalizedEmail=email.toLowerCase().trim();
+       let user=await User.findOne({email:normalizedEmail});
+
+       if(!user){
+        const randomPassword=crypto.randomBytes(16).toString('hex');
+        const passwordHash=await hashPassword(randomPassword);
+
+        user=await User.create({
+          email:normalizedEmail,
+          passwordHash:passwordHash,
+          role:'user',
+          isEmailVerified:true,
+          twoFactorEnabled:false
+        });
+
+
+       }
+       else{
+        if(!user.isEmailVerified){
+          user.isEmailVerified=true;
+          await user.save()
+        }
+       }
+
+       const accessToken=createAccessToken(
+        user.id, user.role as "user"|"admin",user.tokenVersion
+       )
+
+       const refreshToken=createRefreshToken(user.id,user.tokenVersion);
+
+       const isProd=process.env.NODE_ENV==='production'
+       res.cookie('refreshToken',refreshToken,{
+         httpOnly:true,
+         secure: isProd,
+         sameSite:'lax',
+         maxAge:7*24*60*60*1000
+       })
+
+       return res.json({message:'Google login sucessful',accessToken,
+      user:{
+        id:user.id,
+        email:user.email,
+        role:user.role,
+        isEmailVerified:user.isEmailVerified  
+      }
+      })
+
+    } catch (error) {
+      console.log(error)
+      return res.status(500).json({
+        message:'Internal server error'
+    })
+}
 }
